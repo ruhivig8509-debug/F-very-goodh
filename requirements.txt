@@ -3,4 +3,4 @@ psycopg2-binary==2.9.9
 flask==3.0.3
 aiohttp==3.9.5
 requests==2.31.0
-Pillow==10.3.0
+Pillow  # Version number hata diya taaki latest install ho
