@@ -63,6 +63,9 @@ SUDO_USERS = list(map(int, os.environ.get("SUDO_USERS", "").split(","))) if os.e
 PORT = int(os.environ.get("PORT", 10000))
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")  # Your Render URL
 
+# Bot start time (for uptime tracking)
+START_TIME = time.time()
+
 # Logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -7135,8 +7138,13 @@ def callback_handler(update, context):
         trivia_callback(update, context)
     elif data.startswith("setting_"):
         settings_callback(update, context)
+    elif data.startswith("marry_"):
+        marry_callback_handler(update, context)
+    elif data.startswith("giveaway_join_"):
+        giveaway_join_callback(update, context)
+    elif data.startswith("wyr_"):
+        query.answer(f"{'🅰️ Bold choice!' if data.endswith('a') else '🅱️ Interesting!'}", show_alert=True)
     elif data.startswith("captcha_"):
-        # Captcha verification
         parts = data.split("_")
         if len(parts) >= 3:
             action = parts[1]
@@ -7201,7 +7209,7 @@ def main():
     dp.add_handler(CommandHandler("setwarnaction", setwarnaction_command))
     dp.add_handler(CommandHandler("topwarn", topwarn_command))
     dp.add_handler(CommandHandler("purge", purge_command))
-    dp.add_handler(CommandHandler("del", delete_command))
+    dp.add_handler(CommandHandler("del", del_command))
     dp.add_handler(CommandHandler("report", report_command))
     
     # ---- ADMIN TOOLS ----
@@ -7237,7 +7245,7 @@ def main():
     dp.add_handler(CommandHandler("clear", clear_note_command))
     dp.add_handler(CommandHandler("clearall", clearnotes_command))
     dp.add_handler(CommandHandler("privatenotes", privatenotes_command))
-    dp.add_handler(MessageHandler(Filters.regex(r'^#\w+'), note_hashtag_handler))
+    dp.add_handler(MessageHandler(Filters.regex(r'^#\w+'), hashtag_note_handler))
     
     # ---- FILTERS ----
     dp.add_handler(CommandHandler("filter", add_filter_command))
@@ -7621,49 +7629,1089 @@ def check_nightmode(context):
 def _stub(update, context):
     update.effective_message.reply_text("⚠️ This feature is under development!")
 
-# Assign stub for any missing functions
-_MISSING_FUNCS = [
-    'gbanned_list_command', 'setloglevel_command', 'joke_command', 'quote_command',
-    'advice_command', 'dare_command', 'truth_command', 'wyr_command', 'slap_command',
-    'hug_command', 'kiss_command', 'punch_command', 'pat_command', 'paste_command',
-    'translate_command', 'define_command', 'wiki_command', 'topuser_command',
-    'rank_command', 'coins_command', 'daily_command', 'rep_command', 'me_command',
-    'id_command', 'info_command', 'start_command', 'help_command',
-    'ban_command', 'unban_command', 'kick_command', 'mute_command', 'unmute_command',
-    'tmute_command', 'tban_command', 'warn_command', 'unwarn_command', 'warns_command',
-    'clearwarns_command', 'setwarnlimit_command', 'setwarnaction_command',
-    'purge_command', 'delete_command', 'promote_command', 'demote_command',
-    'pin_command', 'unpin_command', 'unpinall_command', 'settitle_command',
-    'lock_command', 'unlock_command', 'locktypes_command', 'setdesc_command',
-    'setgpic_command', 'setwelcome_command', 'resetwelcome_command', 'welc_command',
-    'setgoodbye_command', 'goodbye_toggle_command', 'cleanwelcome_command',
-    'save_note_command', 'get_note_command', 'list_notes_command', 'clear_note_command',
-    'note_hashtag_handler', 'add_filter_command', 'list_filters_command',
-    'remove_filter_command', 'remove_all_filters_command', 'addblacklist_command',
-    'listblacklist_command', 'removeblacklist_command', 'blacklistaction_command',
-    'rules_command', 'setrules_command', 'resetrules_command', 'privaterules_command',
-    'setbio_command', 'bio_command', 'afk_command', 'eight_ball_command',
-    'setflood_command', 'flood_status_command', 'setfloodaction_command',
-    'toggle_antilink_command', 'toggle_antispam_command', 'setlog_command', 'unsetlog_command',
-    'toggle_captcha_command', 'captchamode_command', 'disable_command', 'enable_command',
-    'disabled_command', 'connect_command', 'disconnect_command', 'connection_info_command',
-    'schedule_command', 'list_schedules_command', 'cancel_schedule_command',
-    'nightmode_command', 'setnightmode_command', 'slowmode_command', 'giveaway_command',
-    'endgiveaway_command', 'join_giveaway_command', 'redeem_coupon_command',
-    'create_coupon_command', 'marry_command', 'divorce_command', 'spouse_command',
-    'todo_command', 'todos_command', 'donetodo_command', 'deletetodo_command',
-    'confess_command', 'wordgame_command', 'stopgame_command', 'addrss_command',
-    'rsslist_command', 'delrss_command',
-]
-
-import sys
-_current_module = sys.modules[__name__]
-for _fn in _MISSING_FUNCS:
-    if not hasattr(_current_module, _fn):
-        setattr(_current_module, _fn, _stub)
 
 
 # ============================================================
+# ALL PREVIOUSLY MISSING FUNCTIONS - FULLY IMPLEMENTED
+# ============================================================
+
+# ---- GBANNED LIST ----
+@sudo_only
+def gbanned_list_command(update, context):
+    gbans = db.execute("SELECT user_id, reason FROM gbans ORDER BY created_at DESC LIMIT 20", fetch=True)
+    if not gbans:
+        update.effective_message.reply_text("✅ No globally banned users!")
+        return
+    text = f"🚫 <b>Globally Banned Users</b>\n\n"
+    for g in gbans:
+        text += f"• <code>{g['user_id']}</code> — {html.escape(g.get('reason','No reason'))}\n"
+    update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+
+@sudo_only
+def setloglevel_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /setloglevel <DEBUG|INFO|WARNING|ERROR>")
+        return
+    level = context.args[0].upper()
+    levels = {'DEBUG': logging.DEBUG, 'INFO': logging.INFO, 'WARNING': logging.WARNING, 'ERROR': logging.ERROR}
+    if level not in levels:
+        update.effective_message.reply_text("Invalid level!")
+        return
+    logging.getLogger().setLevel(levels[level])
+    update.effective_message.reply_text(f"✅ Log level → <b>{level}</b>", parse_mode=ParseMode.HTML)
+
+# ---- FUN ----
+@check_disabled
+def advice_command(update, context):
+    advices = [
+        "🌟 Never give up on your dreams!", "💡 The best time to start is now.",
+        "🔑 Courage is not the absence of fear.", "🌈 Be yourself — everyone else is taken.",
+        "⚡ The only way to do great work is to love what you do.",
+        "💪 You are stronger than you think!", "🌺 Kindness is always in fashion.",
+        "🎯 Focus on progress, not perfection.", "❤️ Be the change you wish to see.",
+        "🧠 Invest in yourself — it pays the best interest."
+    ]
+    update.effective_message.reply_text(random.choice(advices))
+
+@check_disabled
+def wyr_command(update, context):
+    questions = [
+        ("Be able to fly", "Be invisible"), ("Live in the past", "Live in the future"),
+        ("Have super strength", "Have super speed"), ("Be rich but unhappy", "Be poor but happy"),
+        ("Speak all languages", "Play all instruments"), ("Live underwater", "Live in space"),
+        ("Have a dragon", "Be a dragon"), ("Never sleep again", "Always be sleeping"),
+    ]
+    a, b = random.choice(questions)
+    keyboard = [[InlineKeyboardButton(f"🅰️ {a}", callback_data="wyr_a"), InlineKeyboardButton(f"🅱️ {b}", callback_data="wyr_b")]]
+    update.effective_message.reply_text(
+        f"🤔 <b>Would You Rather...</b>\n\n🅰️ <b>{html.escape(a)}</b>\n\n— OR —\n\n🅱️ <b>{html.escape(b)}</b>",
+        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+
+@check_disabled
+def kiss_command(update, context):
+    actions = ["😘 *smooch*", "💋 *muah*", "😚 *gentle kiss*", "💝 *kiss on cheek*"]
+    if update.effective_message.reply_to_message:
+        target = mention_html(update.effective_message.reply_to_message.from_user.id, update.effective_message.reply_to_message.from_user.first_name)
+        user = mention_html(update.effective_user.id, update.effective_user.first_name)
+        update.effective_message.reply_text(f"{user} kissed {target}! {random.choice(actions)}", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text(f"Send some love! {random.choice(actions)}")
+
+@check_disabled
+def punch_command(update, context):
+    actions = ["👊 *POW!*", "💢 *WHAM!*", "🥊 *SMACK!*", "💥 *BOOM!*"]
+    if update.effective_message.reply_to_message:
+        target = mention_html(update.effective_message.reply_to_message.from_user.id, update.effective_message.reply_to_message.from_user.first_name)
+        user = mention_html(update.effective_user.id, update.effective_user.first_name)
+        update.effective_message.reply_text(f"{user} punched {target}! {random.choice(actions)}", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text(f"Punch! {random.choice(actions)}")
+
+@check_disabled
+def translate_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /translate <lang_code> <text>\nExample: /translate hi Hello\nCodes: hi=Hindi es=Spanish fr=French de=German ar=Arabic ja=Japanese")
+        return
+    lang = context.args[0].lower()
+    text = " ".join(context.args[1:])
+    if not text:
+        update.effective_message.reply_text("Provide text to translate!")
+        return
+    try:
+        import urllib.request as _ur
+        url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(text)}&langpair=en|{lang}"
+        req = _ur.Request(url, headers={'User-Agent': 'MegaBot/1.0'})
+        with _ur.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        translated = data['responseData']['translatedText']
+        update.effective_message.reply_text(
+            f"🌐 <b>Translation</b>\n\n🇬🇧 {html.escape(text)}\n➡️ ({lang}): <b>{html.escape(translated)}</b>",
+            parse_mode=ParseMode.HTML)
+    except Exception as e:
+        update.effective_message.reply_text(f"❌ Translation failed: {e}")
+
+@check_disabled
+def define_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /define <word>")
+        return
+    word = context.args[0]
+    try:
+        import urllib.request as _ur
+        url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{urllib.parse.quote(word)}"
+        req = _ur.Request(url, headers={'User-Agent': 'MegaBot/1.0'})
+        with _ur.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        meanings = data[0].get('meanings', [])
+        text = f"📖 <b>{html.escape(word)}</b>\n\n"
+        for m in meanings[:2]:
+            defs = m.get('definitions', [])
+            if defs:
+                text += f"<i>{m.get('partOfSpeech','')}</i>: {html.escape(defs[0].get('definition',''))}\n"
+                if defs[0].get('example'):
+                    text += f"💬 <i>{html.escape(defs[0]['example'])}</i>\n"
+                text += "\n"
+        update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+    except Exception:
+        update.effective_message.reply_text(f"❌ Definition not found for: <b>{html.escape(word)}</b>", parse_mode=ParseMode.HTML)
+
+@check_disabled
+def wiki_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /wiki <topic>")
+        return
+    query = " ".join(context.args)
+    try:
+        import urllib.request as _ur
+        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(query.replace(' ','_'))}"
+        req = _ur.Request(url, headers={'User-Agent': 'MegaBot/1.0'})
+        with _ur.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        title = data.get('title', query)
+        extract = data.get('extract', 'No summary available.')[:800]
+        page_url = data.get('content_urls', {}).get('desktop', {}).get('page', '')
+        keyboard = [[InlineKeyboardButton("📖 Read More", url=page_url)]] if page_url else None
+        update.effective_message.reply_text(
+            f"📚 <b>{html.escape(title)}</b>\n\n{html.escape(extract)}...",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None)
+    except Exception:
+        update.effective_message.reply_text(f"❌ No Wikipedia article found for <b>{html.escape(query)}</b>!", parse_mode=ParseMode.HTML)
+
+@check_disabled
+def paste_command(update, context):
+    msg = update.effective_message
+    if msg.reply_to_message and msg.reply_to_message.text:
+        text = msg.reply_to_message.text
+    elif context.args:
+        text = " ".join(context.args)
+    else:
+        msg.reply_text("Usage: /paste <text> or reply to a message")
+        return
+    try:
+        import urllib.request as _ur
+        data = json.dumps({"content": text}).encode()
+        req = _ur.Request("https://hastebin.com/documents", data=data, headers={'Content-Type': 'application/json'})
+        with _ur.urlopen(req, timeout=10) as resp:
+            key = json.loads(resp.read().decode())['key']
+        msg.reply_text(f"📋 Pasted! 🔗 https://hastebin.com/{key}")
+    except Exception:
+        try:
+            import urllib.request as _ur
+            data = json.dumps({"document": {"content": text}}).encode()
+            req = _ur.Request("https://nekobin.com/api/documents", data=data, headers={'Content-Type': 'application/json'})
+            with _ur.urlopen(req, timeout=10) as resp:
+                key = json.loads(resp.read().decode())['result']['key']
+            msg.reply_text(f"📋 Pasted! 🔗 https://nekobin.com/{key}")
+        except Exception as e:
+            msg.reply_text(f"❌ Paste failed: {e}")
+
+# ---- USER PROFILE ----
+@check_disabled
+def topuser_command(update, context):
+    top = db.execute("SELECT user_id, first_name, xp, level FROM users ORDER BY xp DESC LIMIT 10", fetch=True)
+    if not top:
+        update.effective_message.reply_text("No user data yet!")
+        return
+    medals = ['🥇','🥈','🥉']+['🏅']*7
+    text = "🏆 <b>Top Users (XP)</b>\n\n"
+    for i, u in enumerate(top):
+        name = html.escape(u.get('first_name') or str(u['user_id']))
+        text += f"{medals[i]} <b>{name}</b> — ⭐ {u['xp']} XP | Lv.{u['level']}\n"
+    update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+
+@check_disabled
+def rank_command(update, context):
+    user_id = update.effective_user.id
+    user = db.execute("SELECT * FROM users WHERE user_id = %s", (user_id,), fetchone=True)
+    if not user:
+        update.effective_message.reply_text("No data! Send some messages first.")
+        return
+    rank_row = db.execute("SELECT COUNT(*) as r FROM users WHERE xp > %s", (user.get('xp',0),), fetchone=True)
+    rank = (rank_row['r'] + 1) if rank_row else 1
+    xp = user.get('xp', 0); level = user.get('level', 1); next_xp = level * 100
+    bar_filled = int((xp % next_xp) / next_xp * 10) if next_xp else 0
+    bar = "█"*bar_filled + "░"*(10-bar_filled)
+    update.effective_message.reply_text(
+        f"📊 <b>Rank Card</b>\n\n{mention_html(user_id, update.effective_user.first_name)}\n"
+        f"🏆 Rank: <b>#{rank}</b>\n⭐ XP: <b>{xp}</b>\n📈 Level: <b>{level}</b>\n[{bar}] {xp%next_xp}/{next_xp} XP",
+        parse_mode=ParseMode.HTML)
+
+@check_disabled
+def coins_command(update, context):
+    user_id = update.effective_user.id
+    user = db.execute("SELECT coins, first_name FROM users WHERE user_id = %s", (user_id,), fetchone=True)
+    coins = user['coins'] if user else 0
+    name = html.escape(user.get('first_name') or str(user_id)) if user else str(user_id)
+    update.effective_message.reply_text(f"💰 <b>{name}</b> has <b>{coins:,}</b> coins!", parse_mode=ParseMode.HTML)
+
+@check_disabled
+def rep_command(update, context):
+    msg = update.effective_message
+    if not msg.reply_to_message:
+        msg.reply_text("❌ Reply to someone to give rep!")
+        return
+    target = msg.reply_to_message.from_user
+    if target.id == update.effective_user.id or target.is_bot:
+        msg.reply_text("❌ Can't rep yourself or a bot!")
+        return
+    db.execute("UPDATE users SET reputation = reputation + 1 WHERE user_id = %s", (target.id,))
+    rep = db.execute("SELECT reputation FROM users WHERE user_id = %s", (target.id,), fetchone=True)
+    total = rep['reputation'] if rep else 1
+    msg.reply_text(f"⭐ {mention_html(update.effective_user.id, update.effective_user.first_name)} repped "
+                   f"{mention_html(target.id, target.first_name)}! Total: <b>{total}</b>", parse_mode=ParseMode.HTML)
+
+# ---- WARN EXTRAS ----
+@check_disabled
+@group_only
+@admin_only
+def unwarn_command(update, context):
+    user_id, user_name = extract_user(update, context)
+    if not user_id:
+        update.effective_message.reply_text("Reply to a user or provide ID!")
+        return
+    last = db.execute("SELECT id FROM warnings WHERE chat_id=%s AND user_id=%s ORDER BY created_at DESC LIMIT 1",
+                      (update.effective_chat.id, user_id), fetchone=True)
+    if not last:
+        update.effective_message.reply_text("✅ User has no warnings!")
+        return
+    db.execute("DELETE FROM warnings WHERE id=%s", (last['id'],))
+    cnt = db.execute("SELECT COUNT(*) as c FROM warnings WHERE chat_id=%s AND user_id=%s",
+                     (update.effective_chat.id, user_id), fetchone=True)
+    update.effective_message.reply_text(
+        f"✅ Warning removed from {mention_html(user_id, user_name)}!\nRemaining: <b>{cnt['c']}</b>",
+        parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def clearwarns_command(update, context):
+    user_id, user_name = extract_user(update, context)
+    if not user_id:
+        update.effective_message.reply_text("Reply to a user or provide ID!")
+        return
+    db.execute("DELETE FROM warnings WHERE chat_id=%s AND user_id=%s", (update.effective_chat.id, user_id))
+    update.effective_message.reply_text(f"✅ All warns cleared for {mention_html(user_id, user_name)}!", parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def setwarnlimit_command(update, context):
+    if not context.args or not context.args[0].isdigit():
+        update.effective_message.reply_text("Usage: /setwarnlimit <1-10>")
+        return
+    limit = max(1, min(10, int(context.args[0])))
+    db.execute("UPDATE chats SET warn_limit=%s WHERE chat_id=%s", (limit, update.effective_chat.id))
+    update.effective_message.reply_text(f"✅ Warn limit: <b>{limit}</b>", parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def setwarnaction_command(update, context):
+    if not context.args or context.args[0].lower() not in ['ban','kick','mute']:
+        update.effective_message.reply_text("Usage: /setwarnaction <ban|kick|mute>")
+        return
+    db.execute("UPDATE chats SET warn_action=%s WHERE chat_id=%s", (context.args[0].lower(), update.effective_chat.id))
+    update.effective_message.reply_text(f"✅ Warn action: <b>{context.args[0]}</b>", parse_mode=ParseMode.HTML)
+
+# ---- ADMIN ----
+@check_disabled
+@group_only
+@admin_only
+def delete_command(update, context):
+    """Alias for del_command — same functionality, kept for compatibility"""
+    del_command(update, context)
+
+@check_disabled
+@group_only
+@admin_only
+def settitle_command(update, context):
+    msg = update.effective_message
+    if not msg.reply_to_message:
+        msg.reply_text("❌ Reply to a user!")
+        return
+    title = " ".join(context.args)[:16] if context.args else ""
+    try:
+        context.bot.set_chat_administrator_custom_title(update.effective_chat.id, msg.reply_to_message.from_user.id, title)
+        msg.reply_text(f"✅ Title set: <b>{html.escape(title)}</b>", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        msg.reply_text(f"❌ {e}")
+
+@check_disabled
+@group_only
+@admin_only
+def locktypes_command(update, context):
+    lock_types = ["text","media","sticker","gif","photo","video","audio","voice","document","contact","location","game","forward","bot","url"]
+    chat = db.execute("SELECT locked_types FROM chats WHERE chat_id=%s", (update.effective_chat.id,), fetchone=True)
+    locked = json.loads(chat['locked_types']) if chat and chat.get('locked_types') else []
+    text = "🔒 <b>Lockable Types</b>\n\n"
+    for lt in lock_types:
+        text += f"{'🔒' if lt in locked else '🔓'} {lt}\n"
+    update.effective_message.reply_text(text + "\nUse /lock <type> to toggle", parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def setdesc_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /setdesc <description>")
+        return
+    try:
+        context.bot.set_chat_description(update.effective_chat.id, " ".join(context.args))
+        update.effective_message.reply_text("✅ Description updated!")
+    except Exception as e:
+        update.effective_message.reply_text(f"❌ {e}")
+
+# ---- WELCOME / GOODBYE ----
+@check_disabled
+@group_only
+@admin_only
+def setwelcome_command(update, context):
+    msg = update.effective_message
+    if not context.args:
+        msg.reply_text("Usage: /setwelcome <text>\nVars: {first} {last} {fullname} {username} {mention} {id} {chatname} {count}")
+        return
+    wtext = " ".join(context.args)
+    db.execute("UPDATE chats SET welcome_text=%s WHERE chat_id=%s", (wtext, update.effective_chat.id))
+    preview = format_welcome(wtext, update.effective_user, update.effective_chat)
+    msg.reply_text(f"✅ Welcome set!\n\nPreview:\n{preview}", parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def resetwelcome_command(update, context):
+    db.execute("UPDATE chats SET welcome_text='Hey {mention}, welcome to {chatname}! 🎉' WHERE chat_id=%s", (update.effective_chat.id,))
+    update.effective_message.reply_text("✅ Welcome reset to default!")
+
+@check_disabled
+@group_only
+@admin_only
+def welc_command(update, context):
+    chat = db.execute("SELECT welcome_enabled, welcome_text FROM chats WHERE chat_id=%s", (update.effective_chat.id,), fetchone=True)
+    if not context.args:
+        enabled = chat.get('welcome_enabled', True) if chat else True
+        text = chat.get('welcome_text', 'Default') if chat else 'Default'
+        update.effective_message.reply_text(
+            f"👋 <b>Welcome Status:</b> {'✅ ON' if enabled else '❌ OFF'}\n\n{html.escape(text)}", parse_mode=ParseMode.HTML)
+        return
+    mode = context.args[0].lower()
+    new_val = mode in ['on', 'yes', 'true']
+    db.execute("UPDATE chats SET welcome_enabled=%s WHERE chat_id=%s", (new_val, update.effective_chat.id))
+    update.effective_message.reply_text(f"👋 Welcome: {'✅ ON' if new_val else '❌ OFF'}")
+
+@check_disabled
+@group_only
+@admin_only
+def setgoodbye_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /setgoodbye <text>")
+        return
+    db.execute("UPDATE chats SET goodbye_text=%s WHERE chat_id=%s", (" ".join(context.args), update.effective_chat.id))
+    update.effective_message.reply_text("✅ Goodbye message set!")
+
+@check_disabled
+@group_only
+@admin_only
+def goodbye_toggle_command(update, context):
+    chat = db.execute("SELECT goodbye_enabled FROM chats WHERE chat_id=%s", (update.effective_chat.id,), fetchone=True)
+    if not context.args:
+        enabled = chat.get('goodbye_enabled', True) if chat else True
+        update.effective_message.reply_text(f"👋 Goodbye: {'✅ ON' if enabled else '❌ OFF'}")
+        return
+    new_val = context.args[0].lower() in ['on','yes']
+    db.execute("UPDATE chats SET goodbye_enabled=%s WHERE chat_id=%s", (new_val, update.effective_chat.id))
+    update.effective_message.reply_text(f"👋 Goodbye: {'✅ ON' if new_val else '❌ OFF'}")
+
+# ---- NOTES ----
+@check_disabled
+def note_hashtag_handler(update, context):
+    msg = update.effective_message
+    text = msg.text or ''
+    if text.startswith('#'):
+        note_name = text[1:].split()[0].lower()
+        note = db.execute("SELECT * FROM notes WHERE chat_id=%s AND LOWER(note_name)=%s",
+                          (update.effective_chat.id, note_name), fetchone=True)
+        if note:
+            clean_text, buttons = parse_buttons(note.get('note_text',''))
+            reply_markup = build_keyboard(buttons) if buttons else None
+            try:
+                msg.reply_text(clean_text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            except:
+                msg.reply_text(clean_text, reply_markup=reply_markup)
+
+# ---- FILTERS ----
+@check_disabled
+@group_only
+@admin_only
+def remove_filter_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /stop <keyword>")
+        return
+    keyword = " ".join(context.args).lower()
+    result = db.execute("DELETE FROM filters WHERE chat_id=%s AND LOWER(keyword)=%s RETURNING id",
+                        (update.effective_chat.id, keyword), fetchone=True)
+    if result:
+        update.effective_message.reply_text(f"✅ Filter <code>{html.escape(keyword)}</code> removed!", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text(f"❌ Filter not found: {html.escape(keyword)}")
+
+@check_disabled
+@group_only
+@admin_only
+def remove_all_filters_command(update, context):
+    db.execute("DELETE FROM filters WHERE chat_id=%s", (update.effective_chat.id,))
+    update.effective_message.reply_text("✅ All filters removed!")
+
+# ---- BLACKLIST ----
+@check_disabled
+@group_only
+def listblacklist_command(update, context):
+    items = db.execute("SELECT trigger_word, action FROM blacklist WHERE chat_id=%s", (update.effective_chat.id,), fetch=True)
+    if not items:
+        update.effective_message.reply_text("✅ No blacklisted words!")
+        return
+    text = f"🚫 <b>Blacklist ({len(items)})</b>\n\n"
+    for item in items:
+        text += f"• <code>{html.escape(item['trigger_word'])}</code> → {item['action']}\n"
+    update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def removeblacklist_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /rmblacklist <word>")
+        return
+    word = " ".join(context.args).lower()
+    result = db.execute("DELETE FROM blacklist WHERE chat_id=%s AND LOWER(trigger_word)=%s RETURNING id",
+                        (update.effective_chat.id, word), fetchone=True)
+    if result:
+        update.effective_message.reply_text(f"✅ Removed: <code>{html.escape(word)}</code>", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text(f"❌ Not in blacklist: {html.escape(word)}")
+
+@check_disabled
+@group_only
+@admin_only
+def blacklistaction_command(update, context):
+    if not context.args or context.args[0].lower() not in ['delete','warn','kick','ban']:
+        update.effective_message.reply_text("Usage: /blacklistaction <delete|warn|kick|ban>")
+        return
+    db.execute("UPDATE blacklist SET action=%s WHERE chat_id=%s", (context.args[0].lower(), update.effective_chat.id))
+    update.effective_message.reply_text(f"✅ Blacklist action: <b>{context.args[0]}</b>", parse_mode=ParseMode.HTML)
+
+# ---- RULES ----
+@check_disabled
+@group_only
+@admin_only
+def resetrules_command(update, context):
+    db.execute("UPDATE chats SET rules='' WHERE chat_id=%s", (update.effective_chat.id,))
+    update.effective_message.reply_text("✅ Rules cleared!")
+
+@check_disabled
+@group_only
+@admin_only
+def privaterules_command(update, context):
+    update.effective_message.reply_text("ℹ️ Users can /start the bot in PM and then use /rules to get rules privately!")
+
+# ---- FLOOD ----
+@check_disabled
+@group_only
+def flood_status_command(update, context):
+    chat = db.execute("SELECT antiflood_enabled, antiflood_limit, antiflood_action FROM chats WHERE chat_id=%s",
+                      (update.effective_chat.id,), fetchone=True)
+    enabled = chat.get('antiflood_enabled', False) if chat else False
+    limit = chat.get('antiflood_limit', 10) if chat else 10
+    action = chat.get('antiflood_action', 'mute') if chat else 'mute'
+    update.effective_message.reply_text(
+        f"🌊 <b>Anti-Flood</b>\nStatus: {'✅ ON' if enabled else '❌ OFF'}\nLimit: <b>{limit} msgs/5s</b>\nAction: <b>{action}</b>",
+        parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def setfloodaction_command(update, context):
+    if not context.args or context.args[0].lower() not in ['ban','kick','mute']:
+        update.effective_message.reply_text("Usage: /setfloodaction <ban|kick|mute>")
+        return
+    db.execute("UPDATE chats SET antiflood_action=%s WHERE chat_id=%s", (context.args[0].lower(), update.effective_chat.id))
+    update.effective_message.reply_text(f"✅ Flood action: <b>{context.args[0]}</b>", parse_mode=ParseMode.HTML)
+
+# ---- ANTILINK / ANTISPAM ----
+@check_disabled
+@group_only
+@admin_only
+def toggle_antilink_command(update, context):
+    chat = db.execute("SELECT antilink_enabled FROM chats WHERE chat_id=%s", (update.effective_chat.id,), fetchone=True)
+    enabled = not (chat.get('antilink_enabled', False) if chat else False)
+    db.execute("UPDATE chats SET antilink_enabled=%s WHERE chat_id=%s", (enabled, update.effective_chat.id))
+    update.effective_message.reply_text(f"🔗 Anti-link: {'✅ ON' if enabled else '❌ OFF'}")
+
+@check_disabled
+@group_only
+@admin_only
+def toggle_antispam_command(update, context):
+    chat = db.execute("SELECT antispam_enabled FROM chats WHERE chat_id=%s", (update.effective_chat.id,), fetchone=True)
+    enabled = not (chat.get('antispam_enabled', False) if chat else False)
+    db.execute("UPDATE chats SET antispam_enabled=%s WHERE chat_id=%s", (enabled, update.effective_chat.id))
+    update.effective_message.reply_text(f"🛡️ Anti-spam: {'✅ ON' if enabled else '❌ OFF'}")
+
+# ---- LOG CHANNEL ----
+@check_disabled
+@group_only
+@admin_only
+def setlog_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /setlog <channel_id>")
+        return
+    try:
+        channel_id = int(context.args[0])
+        context.bot.send_message(channel_id, f"✅ Log set for <b>{html.escape(update.effective_chat.title)}</b>!", parse_mode=ParseMode.HTML)
+        db.execute("UPDATE chats SET log_channel=%s WHERE chat_id=%s", (channel_id, update.effective_chat.id))
+        update.effective_message.reply_text(f"✅ Log channel: <code>{channel_id}</code>!", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        update.effective_message.reply_text(f"❌ Error: {e}\nMake bot admin in channel!")
+
+@check_disabled
+@group_only
+@admin_only
+def unsetlog_command(update, context):
+    db.execute("UPDATE chats SET log_channel=0 WHERE chat_id=%s", (update.effective_chat.id,))
+    update.effective_message.reply_text("✅ Log channel removed!")
+
+# ---- CAPTCHA ----
+@check_disabled
+@group_only
+@admin_only
+def toggle_captcha_command(update, context):
+    chat = db.execute("SELECT captcha_enabled FROM chats WHERE chat_id=%s", (update.effective_chat.id,), fetchone=True)
+    enabled = not (chat.get('captcha_enabled', False) if chat else False)
+    db.execute("UPDATE chats SET captcha_enabled=%s WHERE chat_id=%s", (enabled, update.effective_chat.id))
+    update.effective_message.reply_text(f"🔐 Captcha: {'✅ ON — New members must verify!' if enabled else '❌ OFF'}")
+
+@check_disabled
+@group_only
+@admin_only
+def captchamode_command(update, context):
+    if not context.args or context.args[0].lower() not in ['button','math']:
+        update.effective_message.reply_text("Usage: /captchamode <button|math>")
+        return
+    db.execute("UPDATE chats SET captcha_type=%s WHERE chat_id=%s", (context.args[0].lower(), update.effective_chat.id))
+    update.effective_message.reply_text(f"✅ Captcha mode: <b>{context.args[0]}</b>", parse_mode=ParseMode.HTML)
+
+# ---- DISABLE / ENABLE ----
+@check_disabled
+@group_only
+@admin_only
+def disable_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /disable <command>")
+        return
+    cmd = context.args[0].lstrip('/')
+    db.execute("INSERT INTO disabled_commands (chat_id, command) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+               (update.effective_chat.id, cmd))
+    update.effective_message.reply_text(f"✅ /<code>{cmd}</code> disabled!", parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def enable_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /enable <command>")
+        return
+    cmd = context.args[0].lstrip('/')
+    result = db.execute("DELETE FROM disabled_commands WHERE chat_id=%s AND command=%s RETURNING command",
+                        (update.effective_chat.id, cmd), fetchone=True)
+    if result:
+        update.effective_message.reply_text(f"✅ /<code>{cmd}</code> enabled!", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text(f"❌ /<code>{cmd}</code> was not disabled!", parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+def disabled_command(update, context):
+    items = db.execute("SELECT command FROM disabled_commands WHERE chat_id=%s", (update.effective_chat.id,), fetch=True)
+    if not items:
+        update.effective_message.reply_text("✅ No disabled commands!")
+        return
+    cmds = ", ".join([f"/{i['command']}" for i in items])
+    update.effective_message.reply_text(f"🚫 <b>Disabled:</b> {cmds}", parse_mode=ParseMode.HTML)
+
+# ---- CONNECT ----
+@check_disabled
+def connect_command(update, context):
+    msg = update.effective_message
+    if update.effective_chat.type != 'private':
+        db.execute("INSERT INTO connections (user_id, chat_id) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET chat_id=EXCLUDED.chat_id",
+                   (update.effective_user.id, update.effective_chat.id))
+        msg.reply_text(f"✅ Connected to <b>{html.escape(update.effective_chat.title)}</b>!\nManage from PM.", parse_mode=ParseMode.HTML)
+        return
+    if not context.args:
+        msg.reply_text("Usage: /connect <chat_id> or use /connect inside a group!")
+        return
+    try:
+        chat_id = int(context.args[0])
+        chat = context.bot.get_chat(chat_id)
+        member = context.bot.get_chat_member(chat_id, update.effective_user.id)
+        if member.status not in ['creator', 'administrator']:
+            msg.reply_text("❌ You must be admin in that group!")
+            return
+        db.execute("INSERT INTO connections (user_id, chat_id) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET chat_id=EXCLUDED.chat_id",
+                   (update.effective_user.id, chat_id))
+        msg.reply_text(f"✅ Connected to <b>{html.escape(chat.title)}</b>!", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        msg.reply_text(f"❌ Error: {e}")
+
+@check_disabled
+def disconnect_command(update, context):
+    db.execute("DELETE FROM connections WHERE user_id=%s", (update.effective_user.id,))
+    update.effective_message.reply_text("✅ Disconnected!")
+
+@check_disabled
+def connection_info_command(update, context):
+    conn = db.execute("SELECT chat_id FROM connections WHERE user_id=%s", (update.effective_user.id,), fetchone=True)
+    if not conn:
+        update.effective_message.reply_text("❌ Not connected! Use /connect in a group.")
+        return
+    try:
+        chat = context.bot.get_chat(conn['chat_id'])
+        update.effective_message.reply_text(f"🔗 Connected to: <b>{html.escape(chat.title)}</b>", parse_mode=ParseMode.HTML)
+    except:
+        update.effective_message.reply_text(f"🔗 Connected to: <code>{conn['chat_id']}</code>", parse_mode=ParseMode.HTML)
+
+# ---- SCHEDULE ----
+@check_disabled
+@group_only
+@admin_only
+def schedule_command(update, context):
+    if len(context.args) < 2:
+        update.effective_message.reply_text("Usage: /schedule <time> <message>\nExample: /schedule 2h Good morning!")
+        return
+    scheduled_time = extract_time(context.args[0])
+    if not scheduled_time:
+        update.effective_message.reply_text("❌ Invalid time! Use: 30m, 1h, 2d")
+        return
+    message_text = " ".join(context.args[1:])
+    db.execute("INSERT INTO scheduled_messages (chat_id, message_text, scheduled_time, created_by) VALUES (%s,%s,%s,%s)",
+               (update.effective_chat.id, message_text, scheduled_time, update.effective_user.id))
+    update.effective_message.reply_text(
+        f"⏰ Scheduled!\n📝 <code>{html.escape(message_text)}</code>\n🕐 At: {scheduled_time.strftime('%Y-%m-%d %H:%M')} UTC",
+        parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def list_schedules_command(update, context):
+    sched = db.execute("SELECT id, message_text, scheduled_time FROM scheduled_messages WHERE chat_id=%s AND is_sent=FALSE ORDER BY scheduled_time",
+                       (update.effective_chat.id,), fetch=True)
+    if not sched:
+        update.effective_message.reply_text("📅 No scheduled messages!")
+        return
+    text = f"📅 <b>Scheduled ({len(sched)})</b>\n\n"
+    for s in sched:
+        text += f"🆔 <code>{s['id']}</code> | {s['scheduled_time'].strftime('%m-%d %H:%M')}\n📝 {html.escape(str(s['message_text'])[:40])}...\n\n"
+    update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def cancel_schedule_command(update, context):
+    if not context.args or not context.args[0].isdigit():
+        update.effective_message.reply_text("Usage: /cancelschedule <id>")
+        return
+    result = db.execute("DELETE FROM scheduled_messages WHERE id=%s AND chat_id=%s RETURNING id",
+                        (int(context.args[0]), update.effective_chat.id), fetchone=True)
+    if result:
+        update.effective_message.reply_text(f"✅ Schedule <code>{context.args[0]}</code> cancelled!", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text("❌ Not found!")
+
+# ---- NIGHTMODE ----
+@check_disabled
+@group_only
+@admin_only
+def nightmode_command(update, context):
+    chat = db.execute("SELECT nightmode_enabled, nightmode_start, nightmode_end FROM chats WHERE chat_id=%s",
+                      (update.effective_chat.id,), fetchone=True)
+    if not context.args:
+        enabled = chat.get('nightmode_enabled', False) if chat else False
+        start = chat.get('nightmode_start', '00:00') if chat else '00:00'
+        end = chat.get('nightmode_end', '06:00') if chat else '06:00'
+        update.effective_message.reply_text(
+            f"🌙 <b>Night Mode</b>\nStatus: {'✅ ON' if enabled else '❌ OFF'}\n⏰ {start} — {end} UTC\n\nUse: /nightmode on|off",
+            parse_mode=ParseMode.HTML)
+        return
+    new_val = context.args[0].lower() in ['on','yes']
+    db.execute("UPDATE chats SET nightmode_enabled=%s WHERE chat_id=%s", (new_val, update.effective_chat.id))
+    update.effective_message.reply_text(f"🌙 Night mode: {'✅ ON' if new_val else '❌ OFF'}")
+
+@check_disabled
+@group_only
+@admin_only
+def setnightmode_command(update, context):
+    if len(context.args) < 2:
+        update.effective_message.reply_text("Usage: /setnightmode <start> <end>\nExample: /setnightmode 23:00 06:00")
+        return
+    import re as _re
+    if not (_re.match(r'^\d{2}:\d{2}$', context.args[0]) and _re.match(r'^\d{2}:\d{2}$', context.args[1])):
+        update.effective_message.reply_text("❌ Use HH:MM format!")
+        return
+    db.execute("UPDATE chats SET nightmode_start=%s, nightmode_end=%s WHERE chat_id=%s",
+               (context.args[0], context.args[1], update.effective_chat.id))
+    update.effective_message.reply_text(f"✅ Night hours: <b>{context.args[0]} — {context.args[1]} UTC</b>", parse_mode=ParseMode.HTML)
+
+# ---- GIVEAWAY ----
+@check_disabled
+@group_only
+@admin_only
+def giveaway_command(update, context):
+    if len(context.args) < 2:
+        update.effective_message.reply_text("Usage: /giveaway <duration> <prize>\nExample: /giveaway 1h iPhone 15 Pro")
+        return
+    end_time = extract_time(context.args[0])
+    if not end_time:
+        update.effective_message.reply_text("❌ Invalid time!")
+        return
+    prize = " ".join(context.args[1:])
+    result = db.execute("INSERT INTO giveaways (chat_id, creator_id, prize, end_time) VALUES (%s,%s,%s,%s) RETURNING id",
+                        (update.effective_chat.id, update.effective_user.id, prize, end_time), fetchone=True)
+    gid = result['id']
+    keyboard = [[InlineKeyboardButton("🎉 Join Giveaway!", callback_data=f"giveaway_join_{gid}")]]
+    update.effective_message.reply_text(
+        f"🎊 <b>GIVEAWAY!</b>\n\n🏆 Prize: <b>{html.escape(prize)}</b>\n⏰ Ends: {end_time.strftime('%Y-%m-%d %H:%M')} UTC\n\nClick to participate!",
+        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def endgiveaway_command(update, context):
+    active = db.execute("SELECT id FROM giveaways WHERE chat_id=%s AND is_active=TRUE ORDER BY created_at DESC LIMIT 1",
+                        (update.effective_chat.id,), fetchone=True)
+    if not active:
+        update.effective_message.reply_text("❌ No active giveaway!")
+        return
+    giveaway = db.execute("SELECT * FROM giveaways WHERE id=%s", (active['id'],), fetchone=True)
+    participants = json.loads(giveaway.get('participants', '[]'))
+    db.execute("UPDATE giveaways SET is_active=FALSE WHERE id=%s", (active['id'],))
+    if not participants:
+        update.effective_message.reply_text("😢 No participants!")
+        return
+    winner_id = random.choice(participants)
+    try:
+        w = context.bot.get_chat(winner_id)
+        winner_text = mention_html(winner_id, w.first_name)
+    except:
+        winner_text = f"<code>{winner_id}</code>"
+    update.effective_message.reply_text(
+        f"🎊 <b>Giveaway Ended!</b>\n\n🏆 Prize: <b>{html.escape(giveaway['prize'])}</b>\n👥 Participants: {len(participants)}\n\n🎉 Winner: {winner_text}",
+        parse_mode=ParseMode.HTML)
+
+@check_disabled
+def join_giveaway_command(update, context):
+    active = db.execute("SELECT id FROM giveaways WHERE chat_id=%s AND is_active=TRUE ORDER BY created_at DESC LIMIT 1",
+                        (update.effective_chat.id,), fetchone=True)
+    if not active:
+        update.effective_message.reply_text("❌ No active giveaway!")
+        return
+    giveaway = db.execute("SELECT * FROM giveaways WHERE id=%s", (active['id'],), fetchone=True)
+    participants = json.loads(giveaway.get('participants', '[]'))
+    if update.effective_user.id in participants:
+        update.effective_message.reply_text("✅ Already joined!")
+        return
+    participants.append(update.effective_user.id)
+    db.execute("UPDATE giveaways SET participants=%s WHERE id=%s", (json.dumps(participants), active['id']))
+    update.effective_message.reply_text(f"🎉 Joined! Total: <b>{len(participants)}</b>", parse_mode=ParseMode.HTML)
+
+# ---- COUPON ----
+@sudo_only
+def create_coupon_command(update, context):
+    if len(context.args) < 3:
+        update.effective_message.reply_text("Usage: /createcoupon <CODE> <coins|xp> <amount> [max_uses]")
+        return
+    code = context.args[0].upper()
+    rtype = context.args[1].lower()
+    if rtype not in ['coins', 'xp']:
+        update.effective_message.reply_text("❌ Type must be coins or xp!")
+        return
+    try:
+        amount = int(context.args[2])
+        max_uses = int(context.args[3]) if len(context.args) > 3 else 1
+    except:
+        update.effective_message.reply_text("❌ Invalid amount!")
+        return
+    db.execute("INSERT INTO coupons (code, reward_type, reward_amount, max_uses, created_by) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (code) DO UPDATE SET reward_type=EXCLUDED.reward_type, reward_amount=EXCLUDED.reward_amount, max_uses=EXCLUDED.max_uses",
+               (code, rtype, amount, max_uses, update.effective_user.id))
+    update.effective_message.reply_text(
+        f"✅ <b>Coupon Created!</b>\n🎟️ Code: <code>{code}</code>\n🎁 {amount} {rtype}\n🔢 Max Uses: {max_uses}",
+        parse_mode=ParseMode.HTML)
+
+@check_disabled
+def redeem_coupon_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /coupon <CODE>")
+        return
+    code = context.args[0].upper()
+    coupon = db.execute("SELECT * FROM coupons WHERE code=%s", (code,), fetchone=True)
+    if not coupon:
+        update.effective_message.reply_text("❌ Invalid coupon!")
+        return
+    used_by = json.loads(coupon.get('used_by', '[]'))
+    if update.effective_user.id in used_by:
+        update.effective_message.reply_text("❌ Already used!")
+        return
+    if coupon['used_count'] >= coupon['max_uses']:
+        update.effective_message.reply_text("❌ Coupon expired (max uses reached)!")
+        return
+    rtype, amount = coupon['reward_type'], coupon['reward_amount']
+    if rtype == 'coins':
+        db.execute("UPDATE users SET coins=coins+%s WHERE user_id=%s", (amount, update.effective_user.id))
+    elif rtype == 'xp':
+        db.execute("UPDATE users SET xp=xp+%s WHERE user_id=%s", (amount, update.effective_user.id))
+    used_by.append(update.effective_user.id)
+    db.execute("UPDATE coupons SET used_count=used_count+1, used_by=%s WHERE code=%s", (json.dumps(used_by), code))
+    update.effective_message.reply_text(f"🎊 Redeemed! You got: <b>{amount} {rtype}</b>!", parse_mode=ParseMode.HTML)
+
+# ---- MARRY ----
+@check_disabled
+def marry_command(update, context):
+    msg = update.effective_message
+    if not msg.reply_to_message:
+        msg.reply_text("💍 Reply to someone to propose!")
+        return
+    target = msg.reply_to_message.from_user
+    user = update.effective_user
+    if target.id == user.id or target.is_bot:
+        msg.reply_text("❌ Invalid target!")
+        return
+    proposer_data = db.execute("SELECT married_to FROM users WHERE user_id=%s", (user.id,), fetchone=True)
+    if proposer_data and proposer_data.get('married_to') and proposer_data['married_to'] != 0:
+        msg.reply_text("❌ You're already married! /divorce first 💔")
+        return
+    keyboard = [[InlineKeyboardButton("💍 Accept!", callback_data=f"marry_accept_{user.id}_{target.id}"),
+                 InlineKeyboardButton("💔 Reject", callback_data=f"marry_reject_{user.id}")]]
+    msg.reply_text(f"💍 {mention_html(user.id, user.first_name)} proposes to {mention_html(target.id, target.first_name)}!\n\nWill you accept? 💕",
+                   reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+
+@check_disabled
+def divorce_command(update, context):
+    user_id = update.effective_user.id
+    user = db.execute("SELECT married_to FROM users WHERE user_id=%s", (user_id,), fetchone=True)
+    if not user or not user.get('married_to') or user['married_to'] == 0:
+        update.effective_message.reply_text("❌ You're not married!")
+        return
+    spouse_id = user['married_to']
+    db.execute("UPDATE users SET married_to=0 WHERE user_id=%s OR user_id=%s", (user_id, spouse_id))
+    try:
+        spouse = context.bot.get_chat(spouse_id)
+        update.effective_message.reply_text(
+            f"💔 {mention_html(user_id, update.effective_user.first_name)} and {mention_html(spouse_id, spouse.first_name)} divorced.",
+            parse_mode=ParseMode.HTML)
+    except:
+        update.effective_message.reply_text("💔 You are now divorced.")
+
+@check_disabled
+def spouse_command(update, context):
+    user = db.execute("SELECT married_to FROM users WHERE user_id=%s", (update.effective_user.id,), fetchone=True)
+    if not user or not user.get('married_to') or user['married_to'] == 0:
+        update.effective_message.reply_text("💔 Not married to anyone!")
+        return
+    try:
+        spouse = context.bot.get_chat(user['married_to'])
+        update.effective_message.reply_text(f"💑 Married to {mention_html(user['married_to'], spouse.first_name)}! 💕", parse_mode=ParseMode.HTML)
+    except:
+        update.effective_message.reply_text(f"💑 Married to <code>{user['married_to']}</code>", parse_mode=ParseMode.HTML)
+
+# ---- TODO ----
+@check_disabled
+def todo_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /todo <task>")
+        return
+    task = " ".join(context.args)
+    db.execute("INSERT INTO todos (user_id, task) VALUES (%s,%s)", (update.effective_user.id, task))
+    update.effective_message.reply_text(f"✅ Added: <code>{html.escape(task)}</code>", parse_mode=ParseMode.HTML)
+
+@check_disabled
+def todos_command(update, context):
+    items = db.execute("SELECT id, task FROM todos WHERE user_id=%s AND is_done=FALSE ORDER BY id",
+                       (update.effective_user.id,), fetch=True)
+    done = db.execute("SELECT COUNT(*) as c FROM todos WHERE user_id=%s AND is_done=TRUE", (update.effective_user.id,), fetchone=True)
+    if not items:
+        update.effective_message.reply_text(f"📋 Empty! ({done['c'] if done else 0} done ✅)")
+        return
+    text = f"📋 <b>Todo List ({len(items)} pending)</b>\n\n"
+    for i in items:
+        text += f"• [<code>{i['id']}</code>] {html.escape(i['task'])}\n"
+    text += f"\nCompleted: {done['c'] if done else 0} | /donetodo <id> | /deletetodo <id>"
+    update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+
+@check_disabled
+def donetodo_command(update, context):
+    if not context.args or not context.args[0].isdigit():
+        update.effective_message.reply_text("Usage: /donetodo <id>")
+        return
+    result = db.execute("UPDATE todos SET is_done=TRUE WHERE id=%s AND user_id=%s RETURNING task",
+                        (int(context.args[0]), update.effective_user.id), fetchone=True)
+    if result:
+        update.effective_message.reply_text(f"✅ Done: <s>{html.escape(result['task'])}</s>", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text("❌ Not found!")
+
+@check_disabled
+def deletetodo_command(update, context):
+    if not context.args or not context.args[0].isdigit():
+        update.effective_message.reply_text("Usage: /deletetodo <id>")
+        return
+    result = db.execute("DELETE FROM todos WHERE id=%s AND user_id=%s RETURNING task",
+                        (int(context.args[0]), update.effective_user.id), fetchone=True)
+    if result:
+        update.effective_message.reply_text(f"🗑️ Deleted: {html.escape(result['task'])}", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text("❌ Not found!")
+
+# ---- CONFESS ----
+@check_disabled
+def confess_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /confess <your confession>\nPosted anonymously!")
+        return
+    confession = " ".join(context.args)
+    chat_id = update.effective_chat.id
+    result = db.execute("INSERT INTO confessions (chat_id, user_id, confession_text) VALUES (%s,%s,%s) RETURNING id",
+                        (chat_id, update.effective_user.id, confession), fetchone=True)
+    try:
+        update.effective_message.delete()
+    except:
+        pass
+    cid = result['id'] if result else 0
+    context.bot.send_message(chat_id,
+        f"💌 <b>Anonymous Confession #{cid}</b>\n\n<i>{html.escape(confession)}</i>\n\n<code>~ Anonymous</code>",
+        parse_mode=ParseMode.HTML)
+
+# ---- WORD GAME ----
+@check_disabled
+@group_only
+def wordgame_command(update, context):
+    chat_id = update.effective_chat.id
+    existing = db.execute("SELECT is_active FROM word_games WHERE chat_id=%s", (chat_id,), fetchone=True)
+    if existing and existing.get('is_active'):
+        update.effective_message.reply_text("🎮 Game already active! /stopgame to stop.")
+        return
+    start_word = random.choice(['apple','orange','elephant','nature','robot','telegram','python','game','river','planet'])
+    db.execute("INSERT INTO word_games (chat_id, current_word, is_active, scores) VALUES (%s,%s,TRUE,'{}') ON CONFLICT (chat_id) DO UPDATE SET current_word=EXCLUDED.current_word, is_active=TRUE, scores='{}'",
+               (chat_id, start_word))
+    update.effective_message.reply_text(
+        f"🎮 <b>Word Chain Game!</b>\n\nSay a word starting with the last letter of the previous word!\n\nStarting: <b>{start_word}</b>\nNext starts with: <b>{start_word[-1].upper()}</b>",
+        parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def stopgame_command(update, context):
+    chat_id = update.effective_chat.id
+    game = db.execute("SELECT * FROM word_games WHERE chat_id=%s", (chat_id,), fetchone=True)
+    if not game or not game.get('is_active'):
+        update.effective_message.reply_text("❌ No active game!")
+        return
+    db.execute("UPDATE word_games SET is_active=FALSE WHERE chat_id=%s", (chat_id,))
+    scores = json.loads(game.get('scores', '{}'))
+    if scores:
+        top = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
+        txt = "\n".join([f"<code>{uid}</code>: {pts} pts" for uid, pts in top])
+        update.effective_message.reply_text(f"🛑 Game stopped!\n\n🏆 <b>Scores:</b>\n{txt}", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text("🛑 Game stopped!")
+
+# ---- RSS ----
+@check_disabled
+@group_only
+@admin_only
+def addrss_command(update, context):
+    if not context.args:
+        update.effective_message.reply_text("Usage: /addrss <feed_url>")
+        return
+    feed_url = context.args[0]
+    if not feed_url.startswith(('http://', 'https://')):
+        update.effective_message.reply_text("❌ Invalid URL!")
+        return
+    count = db.execute("SELECT COUNT(*) as c FROM rss_feeds WHERE chat_id=%s AND is_active=TRUE", (update.effective_chat.id,), fetchone=True)
+    if count and count['c'] >= 5:
+        update.effective_message.reply_text("❌ Max 5 RSS feeds per group!")
+        return
+    db.execute("INSERT INTO rss_feeds (chat_id, feed_url) VALUES (%s,%s)", (update.effective_chat.id, feed_url))
+    update.effective_message.reply_text(f"✅ RSS added!\n🔗 <code>{html.escape(feed_url)}</code>", parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+def rsslist_command(update, context):
+    feeds = db.execute("SELECT id, feed_url FROM rss_feeds WHERE chat_id=%s AND is_active=TRUE", (update.effective_chat.id,), fetch=True)
+    if not feeds:
+        update.effective_message.reply_text("📰 No RSS feeds! Use /addrss <url>")
+        return
+    text = f"📰 <b>RSS Feeds ({len(feeds)})</b>\n\n"
+    for f in feeds:
+        text += f"🆔 <code>{f['id']}</code>: {html.escape(f['feed_url'][:60])}\n"
+    text += "\nUse /delrss <id> to remove"
+    update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+
+@check_disabled
+@group_only
+@admin_only
+def delrss_command(update, context):
+    if not context.args or not context.args[0].isdigit():
+        update.effective_message.reply_text("Usage: /delrss <id>")
+        return
+    result = db.execute("DELETE FROM rss_feeds WHERE id=%s AND chat_id=%s RETURNING id",
+                        (int(context.args[0]), update.effective_chat.id), fetchone=True)
+    if result:
+        update.effective_message.reply_text(f"✅ RSS <code>{context.args[0]}</code> removed!", parse_mode=ParseMode.HTML)
+    else:
+        update.effective_message.reply_text("❌ Not found!")
+
+# ---- MARRY CALLBACK ----
+def marry_callback_handler(update, context):
+    query = update.callback_query
+    data = query.data.split("_")
+    action = data[1]
+    if action == "accept":
+        proposer_id, target_id = int(data[2]), int(data[3])
+        if query.from_user.id != target_id:
+            query.answer("❌ Not for you!", show_alert=True)
+            return
+        db.execute("UPDATE users SET married_to=%s WHERE user_id=%s", (target_id, proposer_id))
+        db.execute("UPDATE users SET married_to=%s WHERE user_id=%s", (proposer_id, target_id))
+        try:
+            p = context.bot.get_chat(proposer_id); t = context.bot.get_chat(target_id)
+            query.message.edit_text(
+                f"💑 {mention_html(proposer_id, p.first_name)} 💍 {mention_html(target_id, t.first_name)}\nJust got married! 🎊",
+                parse_mode=ParseMode.HTML)
+        except:
+            query.message.edit_text("💑 They got married! 🎊")
+        query.answer("💍 Accepted!")
+    elif action == "reject":
+        query.message.edit_text("💔 Proposal rejected...")
+        query.answer("💔 Rejected")
+
+# ---- GIVEAWAY JOIN CALLBACK ----
+def giveaway_join_callback(update, context):
+    query = update.callback_query
+    gid = int(query.data.split("_")[2])
+    giveaway = db.execute("SELECT * FROM giveaways WHERE id=%s AND is_active=TRUE", (gid,), fetchone=True)
+    if not giveaway:
+        query.answer("❌ Giveaway ended!", show_alert=True)
+        return
+    participants = json.loads(giveaway.get('participants', '[]'))
+    if query.from_user.id in participants:
+        query.answer("✅ Already joined!", show_alert=True)
+        return
+    participants.append(query.from_user.id)
+    db.execute("UPDATE giveaways SET participants=%s WHERE id=%s", (json.dumps(participants), gid))
+    try:
+        keyboard = [[InlineKeyboardButton(f"🎉 Join! ({len(participants)})", callback_data=f"giveaway_join_{gid}")]]
+        query.message.edit_reply_markup(InlineKeyboardMarkup(keyboard))
+    except:
+        pass
+    query.answer(f"🎉 Joined! {len(participants)} total.")
 
 
 if __name__ == '__main__':
